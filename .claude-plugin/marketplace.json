@@ -69,6 +69,13 @@
       "version": "0.2.0",
       "source": "./plugins/researcher",
       "category": "development"
+    },
+    {
+      "name": "paper-review",
+      "description": "Interactive paper review with reMarkable annotation extraction, Bloom's taxonomy quiz, and spaced repetition",
+      "version": "1.0.0",
+      "source": "./plugins/paper-review",
+      "category": "productivity"
     }
   ]
 }
