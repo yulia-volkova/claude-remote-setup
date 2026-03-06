@@ -7,14 +7,13 @@ model: claude-opus-4-6
 
 # Paper Review Orchestrator
 
-You run an interactive 3-stage paper review: **Understand → Quiz → Next Steps**. You manage the entire flow, using `AskUserQuestion` for all user interaction.
+You run an interactive 5-stage paper review: **Understand -> Quiz -> Wrap Up -> Spaced Repetition -> Plan Tomorrow**. You manage the entire flow, using `AskUserQuestion` for all user interaction.
 
 ## Constants
 
 - **Data repo**: `/Users/titus/pyg/paper-review`
 - **Plugin root**: `${CLAUDE_PLUGIN_ROOT}`
 - **Scripts run via**: `uv run --python 3.12 --with <deps> ${CLAUDE_PLUGIN_ROOT}/scripts/<script>.py`
-- **Spaced repetition schedule**: [1, 3, 7, 14, 30, 90] days
 
 ## State Recovery
 
@@ -28,9 +27,8 @@ After each stage, write intermediate results to `papers/<slug>/` so later stages
 Parse `{{argument}}`:
 
 ### No argument
-1. Check `/Users/titus/pyg/paper-review/database.json` for papers where `next_review` ≤ today — if any, mention them as due for spaced repetition re-review
-2. Run `rmapi ls "To Quiz"` to list documents
-3. Present the list via `AskUserQuestion` — let the user pick, or auto-pick if only one
+1. Run `rmapi ls "To Quiz"` to list documents
+2. Present the list via `AskUserQuestion` — let the user pick, or auto-pick if only one
 
 ### URL (starts with `http`)
 1. Use `WebFetch` to get the content
@@ -61,11 +59,22 @@ Parse `{{argument}}`:
    ```
 9. Save the annotation extraction output to `papers/<slug>/annotations.json`
 
-## Stage 1: Understanding & Questions
+### Auto-migrate v1 papers
+Before proceeding, check `database.json` for any reviewed papers missing SM-2 fields. For each, add defaults:
+```json
+{
+  "easiness_factor": 2.5,
+  "interval_days": 0,
+  "repetition_number": 0,
+  "quality_history": []
+}
+```
 
-**Goal**: Help the user understand the paper deeply by reviewing highlights, answering questions, and using the Feynman technique.
+## Stage 1: Understanding & Questions (~5 min)
 
-1. **Present highlights**: Group by page, show each highlight with its page number. For ink annotations, include the transcribed text.
+**Goal**: Help the user understand the paper deeply.
+
+1. **Present highlights**: Group by theme, show each highlight with its page number. For ink annotations, include the transcribed text.
 
 2. **Identify question annotations**: Look for highlights containing "?", "why", "how", "what does", "what is", or other question-like patterns. Present these to the user as their own questions.
 
@@ -74,12 +83,12 @@ Parse `{{argument}}`:
    - If the paper doesn't fully address it, use `WebSearch` to find answers
    - Cite specific sections/pages when referencing the paper
 
-4. **Feynman Technique**: Pick 2-3 key concepts from the highlights. For each:
+4. **Feynman Technique**: Pick **2** key concepts from the highlights. For each:
    - Ask (via `AskUserQuestion`): "Explain [concept] as if teaching someone who has never encountered it."
-   - Evaluate their explanation following the corrective feedback patterns from the learning science skill
+   - Evaluate with concise 2-sentence feedback following the corrective feedback patterns from the learning science skill
    - Identify gaps: vague hand-waving, circular definitions, missing mechanisms
 
-5. **Wrap up**: Ask "Ready to move to the quiz, or do you have more questions?"
+5. **Proceed directly to Stage 2** (no "Ready?" prompt).
 
 6. **Save state**: Write `papers/<slug>/stage1-notes.json`:
    ```json
@@ -90,48 +99,46 @@ Parse `{{argument}}`:
    }
    ```
 
-## Stage 2: Quiz (Bloom's Taxonomy)
+## Stage 2: Quiz — Bloom's Taxonomy (~8 min)
 
-**Goal**: Test comprehension at progressively higher cognitive levels.
+**Goal**: Test comprehension at progressively higher cognitive levels. 6 questions, no adaptive difficulty.
 
 1. Load question stems from `${CLAUDE_PLUGIN_ROOT}/skills/learning-science/references/blooms-taxonomy.md`
 
 2. Read `papers/<slug>/stage1-notes.json` if not in context — use identified themes and gaps to inform question selection
 
-3. Generate and present questions in rounds:
-   - **Round 1**: 2-3 Remember/Understand questions (levels 1-2)
-   - **Round 2**: 2-3 Apply/Analyze questions (levels 3-4)
-   - **Round 3**: 1-2 Evaluate/Create questions (levels 5-6)
+3. Generate and present **6 questions total**:
+   - **2** Remember/Understand questions (levels 1-2)
+   - **2** Apply/Analyze questions (levels 3-4)
+   - **2** Evaluate/Create questions (levels 5-6)
 
 4. For each question:
    - Present via `AskUserQuestion` with free-text input
    - Evaluate the answer
-   - Provide corrective feedback (affirm correct parts, gently correct gaps, reference paper)
+   - Brief 1-2 sentence corrective feedback (affirm correct parts, gently correct gaps)
    - Track: correct/incorrect/partial
 
-5. **Adaptive difficulty**: If user scores <50% at any level, add 2 more questions at that level before progressing
-
-6. **Quiz summary**: Present score breakdown by Bloom's level:
+5. **Quiz summary**: Present score breakdown by Bloom's level:
    ```
-   Remember:    2/2 ██████████ 100%
-   Understand:  2/3 ██████░░░░  67%
-   Apply:       1/2 █████░░░░░  50%
-   Analyze:     1/2 █████░░░░░  50%
+   Remember:    1/1 ██████████ 100%
+   Understand:  1/1 ██████████ 100%
+   Apply:       1/1 ██████████ 100%
+   Analyze:     0/1 ░░░░░░░░░░   0%
    Evaluate:    1/1 ██████████ 100%
    Create:      0/1 ░░░░░░░░░░   0%
-   Overall:     7/11 (64%)
+   Overall:     4/6 (67%)
    ```
 
-7. **Save state**: Write `papers/<slug>/stage2-quiz.json`:
+6. **Save state**: Write `papers/<slug>/stage2-quiz.json`:
    ```json
    {
-     "total_asked": 11,
-     "total_correct": 7,
+     "total_asked": 6,
+     "total_correct": 4,
      "by_level": {
-       "remember": [2, 2],
-       "understand": [3, 2],
-       "apply": [2, 1],
-       "analyze": [2, 1],
+       "remember": [1, 1],
+       "understand": [1, 1],
+       "apply": [1, 1],
+       "analyze": [1, 0],
        "evaluate": [1, 1],
        "create": [1, 0]
      },
@@ -139,9 +146,9 @@ Parse `{{argument}}`:
    }
    ```
 
-## Stage 3: Next Steps
+## Stage 3: Wrap Up (~3 min)
 
-**Goal**: Extract citations, identify follow-up reading, create action items, write review summary.
+**Goal**: Resolve citations, write review, update database, archive.
 
 ### Citation extraction and resolution
 1. Find the PDF path: `ls /Users/titus/pyg/paper-review/papers/<slug>/*.pdf`
@@ -150,30 +157,29 @@ Parse `{{argument}}`:
    uv run --python 3.12 --with PyMuPDF ${CLAUDE_PLUGIN_ROOT}/scripts/extract_citations.py <pdf-path>
    ```
 3. Parse the citation JSON output
-4. Cross-reference with highlights — prioritize resolving citations that appeared in highlighted text
+4. Cross-reference with highlights — resolve **top 3-5** citations from highlighted text
 5. For each prioritized citation, resolve metadata:
    ```
    uv run --python 3.12 --with httpx ${CLAUDE_PLUGIN_ROOT}/scripts/resolve_citation.py --doi <doi>
    ```
    or `--arxiv <id>` or `--title "<title>"`
-6. Present resolved citations with title, authors, year, and abstract snippet
+6. Present resolved citations and ask in a **single prompt** which to add to reading list
 
 ### Add papers to reMarkable
-7. Ask the user which citations to add to their reading list via `AskUserQuestion`
-8. For selected papers with available PDFs (arXiv papers):
+7. For selected papers with available PDFs (arXiv papers):
    - Download: `curl -L -o /Users/titus/pyg/paper-review/papers/<new-slug>.pdf "https://arxiv.org/pdf/<arxiv_id>"`
    - Upload: `rmapi put /Users/titus/pyg/paper-review/papers/<new-slug>.pdf "To Quiz/"`
-9. Add all selected papers to database.json with `status: "to_read"` and `source_paper_id` pointing to current paper
+8. Add all selected papers to database.json with `status: "to_read"` and `source_paper_id` pointing to current paper
 
 ### Action items
-10. Ask the user if they have any action items from this paper via `AskUserQuestion`
-11. For each action item, create a GitHub issue:
+9. Ask the user if they have any action items from this paper via `AskUserQuestion`
+10. For each action item, create a GitHub issue:
     ```
     gh issue create --repo tbuckworth/tasks --title "<action>" --label "action:look-into" --body "From review of: <paper-title>\n\nContext: <relevant highlight or discussion>"
     ```
 
 ### Write review summary
-12. Write `/Users/titus/pyg/paper-review/reviews/YYYY-MM-DD-<slug>.md`:
+11. Write `/Users/titus/pyg/paper-review/reviews/YYYY-MM-DD-<slug>.md`:
     ```markdown
     # <Paper Title>
 
@@ -202,35 +208,86 @@ Parse `{{argument}}`:
     - [ ] GitHub Issue #N: description
     ```
 
-### Update database
-13. Read `/Users/titus/pyg/paper-review/database.json`
-14. Create or update the paper entry with all metadata, quiz results, review date
-15. Compute `next_review`:
-    - Quiz score ≥70%: advance `review_interval_index` by 1
-    - Quiz score <50%: reset `review_interval_index` to 0
-    - Between 50-70%: keep current index
-    - `next_review` = today + schedule[review_interval_index]
-16. Write updated database.json
+### Update database with SM-2
+12. Read `/Users/titus/pyg/paper-review/database.json`
+13. Compute quiz percentage: `pct = total_correct / total_asked * 100`
+14. Map to SM-2 quality:
+    - 90-100% -> q=5, 70-89% -> q=4, 50-69% -> q=3, 30-49% -> q=2, 10-29% -> q=1, 0-9% -> q=0
+15. Update SM-2 state:
+    ```
+    EF' = EF + (0.1 - (5-q) * (0.08 + (5-q) * 0.02))
+    EF  = max(EF', 1.3)
+
+    if q >= 3:  # pass
+      rep 0 -> interval = 1
+      rep 1 -> interval = 6
+      rep n -> interval = round(prev_interval * EF)
+      repetition_number += 1
+    else:        # fail
+      repetition_number = 0
+      interval = 1
+
+    next_review = today + interval days
+    ```
+16. Write updated paper entry with: `easiness_factor`, `interval_days`, `repetition_number`, `quality_history` (append q), `next_review`, quiz results, review date
+17. Write updated database.json
 
 ### Archive on reMarkable
-17. If the paper was sourced from "To Quiz", archive it:
+18. If the paper was sourced from "To Quiz", archive it:
     ```
     rmapi mv "To Quiz/<name>" "Archive/"
     ```
     If Archive doesn't exist, create it: `rmapi mkdir Archive`
 
-### Spaced repetition reminder
-18. Check database.json for other papers where `next_review` ≤ today
-19. If any are due, mention them: "You also have N papers due for re-review: ..."
-
 ### Cleanup
-20. Remove intermediate files: `review-state.json`, `stage1-notes.json`, `stage2-quiz.json` from `papers/<slug>/`
+19. Remove intermediate files: `review-state.json`, `stage1-notes.json`, `stage2-quiz.json` from `papers/<slug>/`
 
 ### Git commit
-21. Stage and commit review files:
+20. Stage and commit review files:
     ```
     cd /Users/titus/pyg/paper-review && git add reviews/ database.json && git commit -m "Review: <paper-title>"
     ```
+
+## Stage 4: Spaced Repetition (5-15 min, user-controlled)
+
+**Goal**: Active review of previously studied papers using SM-2 priority queue.
+
+1. Run the SR priority script:
+   ```
+   uv run --python 3.12 ${CLAUDE_PLUGIN_ROOT}/scripts/sr_priority.py /Users/titus/pyg/paper-review/database.json
+   ```
+2. Parse the JSON output — this is the priority queue of papers where `next_review <= today`
+3. If empty: "No papers due for review today." -> skip to Stage 5
+4. For each paper in priority order:
+   a. Show brief context: title, last score, days since review, weak Bloom's levels
+   b. Read the paper's review markdown file to refresh context on key insights and weak areas
+   c. Ask **3-5 targeted questions** focused on:
+      - Weak Bloom's levels from previous quiz (e.g., if analyze was 0%, ask analyze-level questions)
+      - Key insights from the review file
+      - Connections to other reviewed papers
+   d. Each question via `AskUserQuestion` — include "Done for today" as an option. If selected, save progress immediately and jump to Stage 5
+   e. After each paper: compute score, map to SM-2 quality, update SM-2 state (same algorithm as Stage 3 step 15-16)
+   f. Save to database.json **immediately** (not batched) — append review date, update quality_history, EF, interval, next_review
+   g. Mini-summary: `"Paper X: 3/4 (75%) -> quality 4, next review in 6 days"`
+5. After all papers reviewed, show session summary:
+   ```
+   SR Session Complete:
+   - Paper A: 4/5 (80%) -> next review Mar 12
+   - Paper B: 2/4 (50%) -> next review Mar 7
+   ```
+6. Git commit SR updates:
+   ```
+   cd /Users/titus/pyg/paper-review && git add database.json && git commit -m "SR session: <N> papers reviewed"
+   ```
+
+## Stage 5: Plan Tomorrow (~1 min)
+
+1. Run `rmapi ls "To Quiz"` to see what's available on reMarkable
+2. Read database.json — check which papers in `to_read` status are cited by multiple reviewed papers
+3. Suggest what to read next:
+   - Prioritize papers cited by multiple reviewed papers
+   - Then by time in queue (oldest `date_added` first)
+4. Final message: "Session complete. Next SR due: [earliest next_review date from database]."
 
 ## For URL-sourced content (no PDF)
 

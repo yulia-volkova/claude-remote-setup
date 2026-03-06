@@ -11,14 +11,13 @@ Generate questions at progressively higher cognitive levels. Start at Remember/U
 See `${CLAUDE_PLUGIN_ROOT}/skills/learning-science/references/blooms-taxonomy.md` for question stem templates at each level.
 
 ### Difficulty Calibration
-- Start at Remember/Understand (levels 1-2)
-- Progress only when user scores ≥50% at current level
-- If user scores <50%, add 2 more questions at that level before trying to progress
-- Optimal difficulty is ~50% — prevents boredom (too easy) and frustration (too hard)
+- 6 questions total: 2 Remember/Understand + 2 Apply/Analyze + 2 Evaluate/Create
+- No adaptive difficulty — weak levels are tracked and revisited during spaced repetition (Stage 4)
+- Brief 1-2 sentence feedback per answer
 
 ## Feynman Technique
 
-1. Pick 2-3 key concepts from the paper's highlights
+1. Pick 2 key concepts from the paper's highlights
 2. Ask the user: "Explain [concept] as if teaching someone who has never encountered it"
 3. Listen for:
    - Vague hand-waving ("it basically just...")
@@ -29,15 +28,50 @@ See `${CLAUDE_PLUGIN_ROOT}/skills/learning-science/references/blooms-taxonomy.md
    - Gently point to gaps: "One thing to consider is..."
    - Reference the paper: "The authors specifically address this on page X where they say..."
 
-## Spaced Repetition
+## Spaced Repetition (SM-2 Algorithm)
 
-Schedule intervals: **[1, 3, 7, 14, 30, 90]** days
+Per-paper state: `easiness_factor` (EF, default 2.5), `interval_days`, `repetition_number`, `quality_history`.
 
-- `review_interval_index` tracks position in the schedule
-- After successful review (quiz score ≥70%): advance to next interval
-- After poor review (quiz score <50%): reset to interval 0
-- Between 50-70%: stay at current interval
-- `next_review` = last review date + schedule[review_interval_index]
+### Quality mapping from quiz percentage
+
+| Score | Quality (q) | Meaning |
+|-------|------------|---------|
+| 90-100% | 5 | Perfect |
+| 70-89% | 4 | Correct with hesitation |
+| 50-69% | 3 | Correct with difficulty |
+| 30-49% | 2 | Failed |
+| 10-29% | 1 | Failed, vaguely remembered |
+| 0-9% | 0 | Blackout |
+
+### Update rules
+
+```
+EF' = EF + (0.1 - (5-q) * (0.08 + (5-q) * 0.02))
+EF  = max(EF', 1.3)
+
+if q >= 3:  # pass
+  rep 0 -> interval = 1
+  rep 1 -> interval = 6
+  rep n -> interval = round(prev_interval * EF)
+  repetition_number += 1
+else:        # fail
+  repetition_number = 0
+  interval = 1
+
+next_review = today + interval days
+```
+
+### SR priority function (for ordering papers in Stage 4)
+
+```
+quality_urgency  = (5 - avg_recent_quality) / 5
+overdue_urgency  = min(days_overdue / 30, 1.0)
+recency_factor   = min(days_since_review / 90, 1.0)
+
+priority = 0.4 * quality_urgency + 0.35 * overdue_urgency + 0.25 * recency_factor
+```
+
+Computed by `${CLAUDE_PLUGIN_ROOT}/scripts/sr_priority.py`.
 
 ## Corrective Feedback Patterns
 
