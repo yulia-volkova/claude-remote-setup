@@ -10,7 +10,7 @@ Interactive 5-stage paper review workflow: Understand -> Quiz -> Wrap Up -> Spac
 
 ## Scripts
 
-- `scripts/extract_annotations.py <doc-dir>` — Parse .rm v6 files with rmscene, extract highlights and ink annotations
+- `scripts/extract_annotations.py <doc-dir>` — Parse .rm v6 files, cluster ink strokes, render PNGs, extract surrounding text. Deps: `rmscene,PyMuPDF,Pillow`
 - `scripts/extract_citations.py <pdf-path>` — Extract URLs, DOIs, arXiv IDs from PDF text
 - `scripts/resolve_citation.py <identifier>` — Look up citation metadata via Semantic Scholar/CrossRef
 - `scripts/sr_priority.py <database.json>` — SM-2 priority queue: outputs JSON array of papers due for review, sorted by priority
@@ -20,7 +20,11 @@ Interactive 5-stage paper review workflow: Understand -> Quiz -> Wrap Up -> Spac
 - `rmapi get` downloads .zip (NOT `rmapi geta` which fails)
 - Unzip to get PDF + .rm annotation files
 - .rm v6 files parsed by rmscene: `SceneGlyphItemBlock` for highlights, `SceneLineItemBlock` for ink
-- Ink annotations rendered as PNGs for Claude's vision to transcribe
+- Ink strokes are clustered into logical handwritten notes using Union-Find on bbox proximity
+- Each cluster renders two PNGs: `ink_cluster_p{page}_{id}_white.png` (white bg, for OCR) and `ink_cluster_p{page}_{id}_context.png` (overlaid on PDF)
+- Output JSON uses `handwritten_notes` key (not `ink_annotations`) with fields: `ink_on_white_path`, `ink_on_pdf_path`, `surrounding_text`, `stroke_colors`, `tools_used`
+- Dependencies: `rmscene`, `PyMuPDF`, `Pillow`
+- Source folders: `To Quiz` and `Apollo Interview Prep/Done` on reMarkable — both contain papers ready to review
 
 ## Spaced Repetition (SM-2)
 

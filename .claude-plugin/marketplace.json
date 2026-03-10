@@ -73,7 +73,7 @@
     {
       "name": "paper-review",
       "description": "Interactive paper review with reMarkable annotation extraction, Bloom's taxonomy quiz, and SM-2 spaced repetition",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "source": "./plugins/paper-review",
       "category": "productivity"
     }

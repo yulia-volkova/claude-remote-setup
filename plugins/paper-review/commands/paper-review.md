@@ -14,6 +14,7 @@ You run an interactive 5-stage paper review: **Understand -> Quiz -> Wrap Up -> 
 - **Data repo**: `/Users/titus/pyg/paper-review`
 - **Plugin root**: `${CLAUDE_PLUGIN_ROOT}`
 - **Scripts run via**: `uv run --python 3.12 --with <deps> ${CLAUDE_PLUGIN_ROOT}/scripts/<script>.py`
+- **Apollo Interview Prep folder**: `Apollo Interview Prep/Done` on reMarkable — equivalent to `To Quiz`
 
 ## State Recovery
 
@@ -27,8 +28,12 @@ After each stage, write intermediate results to `papers/<slug>/` so later stages
 Parse `{{argument}}`:
 
 ### No argument
-1. Run `rmapi ls "To Quiz"` to list documents
-2. Present the list via `AskUserQuestion` — let the user pick, or auto-pick if only one
+1. Run both to list available documents:
+   ```
+   rmapi ls "To Quiz"
+   rmapi ls "Apollo Interview Prep/Done"
+   ```
+2. Present a combined grouped list via `AskUserQuestion` — let the user pick, or auto-pick if only one. Track which folder the paper came from in `review-state.json` as `remarkable_folder`.
 
 ### URL (starts with `http`)
 1. Use `WebFetch` to get the content
@@ -46,18 +51,27 @@ Parse `{{argument}}`:
 2. `mkdir -p /Users/titus/pyg/paper-review/papers/<slug>`
 3. `cd /Users/titus/pyg/paper-review/papers/<slug> && rmapi get "<full-path>"`
 4. `unzip "*.zip" -d .` — extracts `<uuid>.pdf`, `<uuid>.content`, `<uuid>/<page-uuid>.rm` files
-5. Run annotation extraction:
+5. **Start annotation extraction in background** (saves annotations.json when done):
    ```
-   uv run --python 3.12 --with rmscene,PyMuPDF ${CLAUDE_PLUGIN_ROOT}/scripts/extract_annotations.py /Users/titus/pyg/paper-review/papers/<slug>/
+   uv run --python 3.12 --with rmscene,PyMuPDF,Pillow,pyobjc-framework-Vision ${CLAUDE_PLUGIN_ROOT}/scripts/extract_annotations.py /Users/titus/pyg/paper-review/papers/<slug>/ > /Users/titus/pyg/paper-review/papers/<slug>/annotations.json 2>/dev/null
    ```
-6. Parse the JSON output
-7. For any ink annotations with `image_path`: use the Read tool to view the PNG images and transcribe the handwriting
-8. Save state:
+   Run this with `Bash(run_in_background=true)`.
+6. **Extract PDF text in foreground** (fast, ~2s):
+   ```
+   uv run --python 3.12 --with PyMuPDF python3 -c "import fitz,json,sys;d=fitz.open(sys.argv[1]);print(json.dumps({'pages':[d[i].get_text() for i in range(len(d))],'total':len(d)}));d.close()" /Users/titus/pyg/paper-review/papers/<slug>/*.pdf
+   ```
+   Parse the JSON output — this provides the text needed for Stage 2 (quiz).
+7. Save state:
    ```json
    // papers/<slug>/review-state.json
-   {"stage": 1, "slug": "<slug>", "source": "remarkable", "remarkable_path": "<path>", "title": "...", "annotations_file": "annotations.json"}
+   {"stage": 2, "slug": "<slug>", "source": "remarkable", "remarkable_path": "<path>", "remarkable_folder": "<folder>", "title": "...", "annotations_file": "annotations.json"}
    ```
-9. Save the annotation extraction output to `papers/<slug>/annotations.json`
+
+### Execution Order
+
+Run **Stage 2 (Quiz) first** using the foreground PDF text — the user starts learning immediately. Then run **Stage 1 (Understanding)** which needs annotations. This reorder means the user isn't waiting for annotation extraction.
+
+At Stage 1 start: check if `papers/<slug>/annotations.json` exists and is non-empty. If not, wait up to 30s checking every 5s.
 
 ### Auto-migrate v1 papers
 Before proceeding, check `database.json` for any reviewed papers missing SM-2 fields. For each, add defaults:
@@ -74,23 +88,31 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
 
 **Goal**: Help the user understand the paper deeply.
 
-1. **Present highlights**: Group by theme, show each highlight with its page number. For ink annotations, include the transcribed text.
+1. **Load annotations**: Read `papers/<slug>/annotations.json`. Wait for it if background extraction is still running.
 
-2. **Identify question annotations**: Look for highlights containing "?", "why", "how", "what does", "what is", or other question-like patterns. Present these to the user as their own questions.
+2. **Present highlights**: Group by theme, show each highlight with its page number and `color_name`.
 
-3. **Answer questions**: For each question the user raised (via annotations or interactively):
+3. **Transcribe handwritten notes**: For each entry in `handwritten_notes`:
+   - If the `transcription` field is non-empty, use it directly (OCR already done)
+   - If `transcription` is empty, fall back to using the Read tool to view the `ink_on_white_path` PNG and transcribe visually
+   - Use `surrounding_text` for context about what the note refers to
+   - Present transcription grouped with nearby highlights
+
+4. **Identify question annotations**: Look for highlights containing "?", "why", "how", "what does", "what is", or other question-like patterns. Present these to the user as their own questions.
+
+5. **Answer questions**: For each question the user raised (via annotations or interactively):
    - First try to answer from the paper content
    - If the paper doesn't fully address it, use `WebSearch` to find answers
    - Cite specific sections/pages when referencing the paper
 
-4. **Feynman Technique**: Pick **2** key concepts from the highlights. For each:
+6. **Feynman Technique**: Pick **2** key concepts from the highlights. For each:
    - Ask (via `AskUserQuestion`): "Explain [concept] as if teaching someone who has never encountered it."
    - Evaluate with concise 2-sentence feedback following the corrective feedback patterns from the learning science skill
    - Identify gaps: vague hand-waving, circular definitions, missing mechanisms
 
-5. **Proceed directly to Stage 2** (no "Ready?" prompt).
+7. **Proceed directly to Stage 3** (no "Ready?" prompt).
 
-6. **Save state**: Write `papers/<slug>/stage1-notes.json`:
+8. **Save state**: Write `papers/<slug>/stage1-notes.json`:
    ```json
    {
      "questions_asked": [...],
@@ -105,7 +127,7 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
 
 1. Load question stems from `${CLAUDE_PLUGIN_ROOT}/skills/learning-science/references/blooms-taxonomy.md`
 
-2. Read `papers/<slug>/stage1-notes.json` if not in context — use identified themes and gaps to inform question selection
+2. Use the PDF text extracted in the foreground step. If `papers/<slug>/stage1-notes.json` exists (i.e., Stage 1 ran first for URL sources), use identified themes and gaps to inform question selection.
 
 3. Generate and present **6 questions total**:
    - **2** Remember/Understand questions (levels 1-2)
@@ -117,6 +139,7 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
    - Evaluate the answer
    - Brief 1-2 sentence corrective feedback (affirm correct parts, gently correct gaps)
    - Track: correct/incorrect/partial
+   - **Carry forward**: For questions 2-6, prepend previous question's feedback at the top of the `AskUserQuestion` text: `Previous: [correct/incorrect] — [feedback]\n\nQuestion N/6 ([level]):`
 
 5. **Quiz summary**: Present score breakdown by Bloom's level:
    ```
@@ -173,9 +196,26 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
 
 ### Action items
 9. Ask the user if they have any action items from this paper via `AskUserQuestion`
-10. For each action item, create a GitHub issue:
+10. For each action item, create a GitHub issue with intelligent labels:
+
+    **Always**: `source:claude`, `section:work`
+    **Action** (infer from content):
+    - `action:look-into` (default) — research, investigate
+    - `action:email` — "reach out to", "contact", "email"
+    - `action:call` — "call", "schedule a meeting"
+    - `action:manual` — "implement", "code", "build", "write"
+    - `action:buy` — "buy", "purchase", "subscribe"
+    **List** (infer from content):
+    - `list:to-read` — reading items (papers, posts, books)
+    - `list:tasks` — general tasks (default)
+    - `list:philosophy` — deep questions, worldview considerations
+    **Priority**: `priority:medium` (default), `priority:high` if urgent, `priority:low` if "someday"
+
     ```
-    gh issue create --repo tbuckworth/tasks --title "<action>" --label "action:look-into" --body "From review of: <paper-title>\n\nContext: <relevant highlight or discussion>"
+    gh issue create --repo tbuckworth/tasks \
+      --title "<action>" \
+      --label "source:claude,action:<type>,list:<list>,section:work,priority:<level>" \
+      --body "From review of: <paper-title>\n\nContext: <relevant highlight or discussion>"
     ```
 
 ### Write review summary
@@ -233,9 +273,9 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
 17. Write updated database.json
 
 ### Archive on reMarkable
-18. If the paper was sourced from "To Quiz", archive it:
+18. Archive the paper from whichever folder it came from (check `remarkable_folder` in review-state.json):
     ```
-    rmapi mv "To Quiz/<name>" "Archive/"
+    rmapi mv "<remarkable_folder>/<name>" "Archive/"
     ```
     If Archive doesn't exist, create it: `rmapi mkdir Archive`
 
@@ -266,9 +306,10 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
       - Key insights from the review file
       - Connections to other reviewed papers
    d. Each question via `AskUserQuestion` — include "Done for today" as an option. If selected, save progress immediately and jump to Stage 5
-   e. After each paper: compute score, map to SM-2 quality, update SM-2 state (same algorithm as Stage 3 step 15-16)
-   f. Save to database.json **immediately** (not batched) — append review date, update quality_history, EF, interval, next_review
-   g. Mini-summary: `"Paper X: 3/4 (75%) -> quality 4, next review in 6 days"`
+   e. **Carry forward**: For each question after the first, include previous feedback at the top of the `AskUserQuestion` text: `Previous: [correct/incorrect] — [feedback]\n\nQuestion N of M:`
+   f. After each paper: compute score, map to SM-2 quality, update SM-2 state (same algorithm as Stage 3 step 15-16)
+   g. Save to database.json **immediately** (not batched) — append review date, update quality_history, EF, interval, next_review
+   h. Mini-summary: `"Paper X: 3/4 (75%) -> quality 4, next review in 6 days"`
 5. After all papers reviewed, show session summary:
    ```
    SR Session Complete:
@@ -282,7 +323,7 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
 
 ## Stage 5: Plan Tomorrow (~1 min)
 
-1. Run `rmapi ls "To Quiz"` to see what's available on reMarkable
+1. Run `rmapi ls "To Quiz"` and `rmapi ls "Apollo Interview Prep/Done"` to see what's available on reMarkable
 2. Read database.json — check which papers in `to_read` status are cited by multiple reviewed papers
 3. Suggest what to read next:
    - Prioritize papers cited by multiple reviewed papers
