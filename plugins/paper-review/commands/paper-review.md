@@ -11,7 +11,7 @@ You run an interactive 5-stage paper review: **Understand -> Quiz -> Wrap Up -> 
 
 ## Constants
 
-- **Data repo**: `/Users/titus/pyg/paper-review`
+- **Data repo**: `/Users/yuliav/study-notes`
 - **Plugin root**: `${CLAUDE_PLUGIN_ROOT}`
 - **Scripts run via**: `uv run --python 3.12 --with <deps> ${CLAUDE_PLUGIN_ROOT}/scripts/<script>.py`
 - **Apollo Interview Prep folder**: `Apollo Interview Prep/Done` on reMarkable — equivalent to `To Quiz`
@@ -28,48 +28,39 @@ After each stage, write intermediate results to `papers/<slug>/` so later stages
 Parse `{{argument}}`:
 
 ### No argument
-1. Run both to list available documents:
-   ```
-   rmapi ls "To Quiz"
-   rmapi ls "Apollo Interview Prep/Done"
-   ```
-2. Present a combined grouped list via `AskUserQuestion` — let the user pick, or auto-pick if only one. Track which folder the paper came from in `review-state.json` as `remarkable_folder`.
+1. Check `reading-list.md` in the data repo for the next unread paper in the current week's schedule.
+2. Present the suggestion via `AskUserQuestion` -- let the user confirm or pick a different one.
 
 ### URL (starts with `http`)
 1. Use `WebFetch` to get the content
 2. Generate a slug from the page title
-3. Create `mkdir -p /Users/titus/pyg/paper-review/papers/<slug>`
-4. Save the web content — no PDF extraction needed, work from web content directly
+3. Create `mkdir -p /Users/yuliav/study-notes/papers/<slug>`
+4. Save the web content -- no PDF extraction needed, work from web content directly
 5. Skip to Stage 1 with the web content as the source material
 
-### Document name
-1. Run `rmapi find "" "{{argument}}"` to locate it on the reMarkable
-2. If ambiguous, present matches via `AskUserQuestion`
-
-### reMarkable document download pipeline
-1. Generate slug: lowercase, hyphenated, max 50 chars (e.g., `ai-control-improving-safety`)
-2. `mkdir -p /Users/titus/pyg/paper-review/papers/<slug>`
-3. `cd /Users/titus/pyg/paper-review/papers/<slug> && rmapi get "<full-path>"`
-4. `unzip "*.zip" -d .` — extracts `<uuid>.pdf`, `<uuid>.content`, `<uuid>/<page-uuid>.rm` files
-5. **Start annotation extraction in background** (saves annotations.json when done):
+### Local PDF path (Notability export)
+1. Generate slug from the PDF filename: lowercase, hyphenated, max 50 chars (e.g., `ai-control-improving-safety`)
+2. `mkdir -p /Users/yuliav/study-notes/papers/<slug>`
+3. Copy the PDF: `cp "<path>" /Users/yuliav/study-notes/papers/<slug>/`
+4. **Start annotation extraction in background** (saves annotations.json when done):
    ```
-   uv run --python 3.12 --with rmscene,PyMuPDF,Pillow,pyobjc-framework-Vision ${CLAUDE_PLUGIN_ROOT}/scripts/extract_annotations.py /Users/titus/pyg/paper-review/papers/<slug>/ > /Users/titus/pyg/paper-review/papers/<slug>/annotations.json 2>/dev/null
+   uv run --python 3.12 --with PyMuPDF,Pillow,pyobjc-framework-Vision ${CLAUDE_PLUGIN_ROOT}/scripts/extract_notability_annotations.py /Users/yuliav/study-notes/papers/<slug>/*.pdf > /Users/yuliav/study-notes/papers/<slug>/annotations.json 2>/dev/null
    ```
    Run this with `Bash(run_in_background=true)`.
-6. **Extract PDF text in foreground** (fast, ~2s):
+5. **Extract PDF text in foreground** (fast, ~2s):
    ```
-   uv run --python 3.12 --with PyMuPDF python3 -c "import fitz,json,sys;d=fitz.open(sys.argv[1]);print(json.dumps({'pages':[d[i].get_text() for i in range(len(d))],'total':len(d)}));d.close()" /Users/titus/pyg/paper-review/papers/<slug>/*.pdf
+   uv run --python 3.12 --with PyMuPDF python3 -c "import fitz,json,sys;d=fitz.open(sys.argv[1]);print(json.dumps({'pages':[d[i].get_text() for i in range(len(d))],'total':len(d)}));d.close()" /Users/yuliav/study-notes/papers/<slug>/*.pdf
    ```
-   Parse the JSON output — this provides the text needed for Stage 2 (quiz).
-7. Save state:
+   Parse the JSON output -- this provides the text needed for Stage 2 (quiz).
+6. Save state:
    ```json
    // papers/<slug>/review-state.json
-   {"stage": 2, "slug": "<slug>", "source": "remarkable", "remarkable_path": "<path>", "remarkable_folder": "<folder>", "title": "...", "annotations_file": "annotations.json"}
+   {"stage": 2, "slug": "<slug>", "source": "notability", "pdf_path": "<path>", "title": "...", "annotations_file": "annotations.json"}
    ```
 
 ### Execution Order
 
-Run **Stage 2 (Quiz) first** using the foreground PDF text — the user starts learning immediately. Then run **Stage 1 (Understanding)** which needs annotations. This reorder means the user isn't waiting for annotation extraction.
+Run **Stage 2 (Quiz) first** using the foreground PDF text -- the user starts learning immediately. Then run **Stage 1 (Understanding)** which needs annotations. This reorder means the user isn't waiting for annotation extraction.
 
 At Stage 1 start: check if `papers/<slug>/annotations.json` exists and is non-empty. If not, wait up to 30s checking every 5s.
 
@@ -105,14 +96,16 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
    - If the paper doesn't fully address it, use `WebSearch` to find answers
    - Cite specific sections/pages when referencing the paper
 
-6. **Feynman Technique**: Pick **2** key concepts from the highlights. For each:
+6. **Feynman Technique**: Pick **3-4** key concepts from the highlights (or from the paper content for URL sources). For each:
    - Ask (via `AskUserQuestion`): "Explain [concept] as if teaching someone who has never encountered it."
    - Evaluate with concise 2-sentence feedback following the corrective feedback patterns from the learning science skill
    - Identify gaps: vague hand-waving, circular definitions, missing mechanisms
 
-7. **Proceed directly to Stage 3** (no "Ready?" prompt).
+7. **Defend Your Position**: After the Feynman explanations, pick the paper's most controversial or load-bearing claim. Present a counterargument and ask (via `AskUserQuestion`): "Here's a counterargument: [counterargument]. How would you respond?" Evaluate the user's defense for logical rigor and evidence use.
 
-8. **Save state**: Write `papers/<slug>/stage1-notes.json`:
+8. **Proceed directly to Stage 3** (no "Ready?" prompt).
+
+9. **Save state**: Write `papers/<slug>/stage1-notes.json`:
    ```json
    {
      "questions_asked": [...],
@@ -174,7 +167,7 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
 **Goal**: Resolve citations, write review, update database, archive.
 
 ### Citation extraction and resolution
-1. Find the PDF path: `ls /Users/titus/pyg/paper-review/papers/<slug>/*.pdf`
+1. Find the PDF path: `ls /Users/yuliav/study-notes/papers/<slug>/*.pdf`
 2. Run citation extraction:
    ```
    uv run --python 3.12 --with PyMuPDF ${CLAUDE_PLUGIN_ROOT}/scripts/extract_citations.py <pdf-path>
@@ -188,10 +181,9 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
    or `--arxiv <id>` or `--title "<title>"`
 6. Present resolved citations and ask in a **single prompt** which to add to reading list
 
-### Add papers to reMarkable
+### Queue follow-up papers
 7. For selected papers with available PDFs (arXiv papers):
-   - Download: `curl -L -o /Users/titus/pyg/paper-review/papers/<new-slug>.pdf "https://arxiv.org/pdf/<arxiv_id>"`
-   - Upload: `rmapi put /Users/titus/pyg/paper-review/papers/<new-slug>.pdf "To Quiz/"`
+   - Download: `curl -L -o /Users/yuliav/study-notes/papers/<new-slug>.pdf "https://arxiv.org/pdf/<arxiv_id>"`
 8. Add all selected papers to database.json with `status: "to_read"` and `source_paper_id` pointing to current paper
 
 ### Action items
@@ -212,20 +204,20 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
     **Priority**: `priority:medium` (default), `priority:high` if urgent, `priority:low` if "someday"
 
     ```
-    gh issue create --repo tbuckworth/tasks \
+    gh issue create --repo yulia-volkova/tasks \
       --title "<action>" \
       --label "source:claude,action:<type>,list:<list>,section:work,priority:<level>" \
       --body "From review of: <paper-title>\n\nContext: <relevant highlight or discussion>"
     ```
 
 ### Write review summary
-11. Write `/Users/titus/pyg/paper-review/reviews/YYYY-MM-DD-<slug>.md`:
+11. Write `/Users/yuliav/study-notes/reviews/YYYY-MM-DD-<slug>.md`:
     ```markdown
     # <Paper Title>
 
     **Authors**: ...
     **Date reviewed**: YYYY-MM-DD
-    **Source**: reMarkable / URL
+    **Source**: Notability PDF / URL
 
     ## Key Highlights
     - (grouped by theme, not just listed by page)
@@ -241,7 +233,7 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
     - (from Stage 1)
 
     ## Follow-up Reading
-    - [ ] Paper Title (arXiv:XXXX.XXXXX) — added to reMarkable
+    - [ ] Paper Title (arXiv:XXXX.XXXXX) — added to database
     - [ ] Paper Title (DOI:...) — added to database
 
     ## Action Items
@@ -249,7 +241,7 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
     ```
 
 ### Update database with SM-2
-12. Read `/Users/titus/pyg/paper-review/database.json`
+12. Read `/Users/yuliav/study-notes/database.json`
 13. Compute quiz percentage: `pct = total_correct / total_asked * 100`
 14. Map to SM-2 quality:
     - 90-100% -> q=5, 70-89% -> q=4, 50-69% -> q=3, 30-49% -> q=2, 10-29% -> q=1, 0-9% -> q=0
@@ -272,20 +264,13 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
 16. Write updated paper entry with: `easiness_factor`, `interval_days`, `repetition_number`, `quality_history` (append q), `next_review`, quiz results, review date
 17. Write updated database.json
 
-### Archive on reMarkable
-18. Archive the paper from whichever folder it came from (check `remarkable_folder` in review-state.json):
-    ```
-    rmapi mv "<remarkable_folder>/<name>" "Archive/"
-    ```
-    If Archive doesn't exist, create it: `rmapi mkdir Archive`
-
 ### Cleanup
-19. Remove intermediate files: `review-state.json`, `stage1-notes.json`, `stage2-quiz.json` from `papers/<slug>/`
+18. Remove intermediate files: `review-state.json`, `stage1-notes.json`, `stage2-quiz.json` from `papers/<slug>/`
 
 ### Git commit
-20. Stage and commit review files:
+19. Stage and commit review files:
     ```
-    cd /Users/titus/pyg/paper-review && git add reviews/ database.json && git commit -m "Review: <paper-title>"
+    cd /Users/yuliav/study-notes && git add reviews/ database.json && git commit -m "Review: <paper-title>"
     ```
 
 ## Stage 4: Spaced Repetition (5-15 min, user-controlled)
@@ -294,7 +279,7 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
 
 1. Run the SR priority script:
    ```
-   uv run --python 3.12 ${CLAUDE_PLUGIN_ROOT}/scripts/sr_priority.py /Users/titus/pyg/paper-review/database.json
+   uv run --python 3.12 ${CLAUDE_PLUGIN_ROOT}/scripts/sr_priority.py /Users/yuliav/study-notes/database.json
    ```
 2. Parse the JSON output — this is the priority queue of papers where `next_review <= today`
 3. If empty: "No papers due for review today." -> skip to Stage 5
@@ -318,22 +303,22 @@ Before proceeding, check `database.json` for any reviewed papers missing SM-2 fi
    ```
 6. Git commit SR updates:
    ```
-   cd /Users/titus/pyg/paper-review && git add database.json && git commit -m "SR session: <N> papers reviewed"
+   cd /Users/yuliav/study-notes && git add database.json && git commit -m "SR session: <N> papers reviewed"
    ```
 
 ## Stage 5: Plan Tomorrow (~1 min)
 
-1. Run `rmapi ls "To Quiz"` and `rmapi ls "Apollo Interview Prep/Done"` to see what's available on reMarkable
-2. Read database.json — check which papers in `to_read` status are cited by multiple reviewed papers
+1. Read `reading-list.md` from the data repo to find the next unread paper in the current week
+2. Read database.json -- check which papers in `to_read` status are cited by multiple reviewed papers
 3. Suggest what to read next:
-   - Prioritize papers cited by multiple reviewed papers
-   - Then by time in queue (oldest `date_added` first)
-4. Final message: "Session complete. Next SR due: [earliest next_review date from database]."
+   - First: next item in `reading-list.md` that hasn't been reviewed yet (cross-reference with database.json)
+   - Then: papers cited by multiple reviewed papers
+   - Then: by time in queue (oldest `date_added` first)
+4. Final message: "Session complete. Next SR due: [earliest next_review date from database]. Tomorrow's reading: [suggestion]."
 
 ## For URL-sourced content (no PDF)
 
 When reviewing a blog post or web article (URL source):
-- Skip annotation extraction — work directly from web content
-- Skip citation extraction script — instead, extract links from the web content itself
-- Skip reMarkable archive step
+- Skip annotation extraction -- work directly from web content
+- Skip citation extraction script -- instead, extract links from the web content itself
 - All other stages work the same: Feynman technique, quiz, action items, review summary

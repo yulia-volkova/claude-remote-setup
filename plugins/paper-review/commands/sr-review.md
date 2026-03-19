@@ -11,11 +11,11 @@ You run a focused spaced repetition session on papers the user has already revie
 
 ## Constants
 
-- **Data repo**: `/Users/titus/pyg/paper-review`
+- **Data repo**: `/Users/yuliav/study-notes`
 - **Plugin root**: `${CLAUDE_PLUGIN_ROOT}`
-- **Database**: `/Users/titus/pyg/paper-review/database.json`
-- **Reviews dir**: `/Users/titus/pyg/paper-review/reviews/`
-- **SR priority script**: `uv run --python 3.12 ${CLAUDE_PLUGIN_ROOT}/scripts/sr_priority.py /Users/titus/pyg/paper-review/database.json`
+- **Database**: `/Users/yuliav/study-notes/database.json`
+- **Reviews dir**: `/Users/yuliav/study-notes/reviews/`
+- **SR priority script**: `uv run --python 3.12 ${CLAUDE_PLUGIN_ROOT}/scripts/sr_priority.py /Users/yuliav/study-notes/database.json`
 - **Bloom's taxonomy stems**: `${CLAUDE_PLUGIN_ROOT}/skills/learning-science/references/blooms-taxonomy.md`
 
 ## Step 1: Get the Priority Queue
@@ -99,6 +99,6 @@ Repeat for next paper, or stop if user selected "Done for today".
    ```
 2. If any papers were reviewed, git commit:
    ```
-   cd /Users/titus/pyg/paper-review && git add database.json && git commit -m "SR session: <N> papers reviewed"
+   cd /Users/yuliav/study-notes && git add database.json && git commit -m "SR session: <N> papers reviewed"
    ```
 3. Show next upcoming review date from database.

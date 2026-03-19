@@ -5,26 +5,28 @@ Interactive 5-stage paper review workflow: Understand -> Quiz -> Wrap Up -> Spac
 ## Architecture
 
 - **Plugin root**: `${CLAUDE_PLUGIN_ROOT}` (this directory)
-- **Data repo**: `/Users/titus/pyg/paper-review/` — reviews, database, downloaded papers
+- **Data repo**: `/Users/yuliav/study-notes/` — reviews, database, downloaded papers
 - **Scripts**: Run via `uv run --python 3.12 --with <deps>` (system Python is 3.9.6, rmscene needs >=3.10)
 
 ## Scripts
 
-- `scripts/extract_annotations.py <doc-dir>` — Parse .rm v6 files, cluster ink strokes, render PNGs, extract surrounding text. Deps: `rmscene,PyMuPDF,Pillow`
+- `scripts/extract_notability_annotations.py <pdf-path>` — Extract highlights and ink annotations from Notability-exported PDFs. Deps: `PyMuPDF,Pillow,pyobjc-framework-Vision`
+- `scripts/extract_annotations.py <doc-dir>` — Parse reMarkable .rm v6 files (legacy). Deps: `rmscene,PyMuPDF,Pillow`
 - `scripts/extract_citations.py <pdf-path>` — Extract URLs, DOIs, arXiv IDs from PDF text
 - `scripts/resolve_citation.py <identifier>` — Look up citation metadata via Semantic Scholar/CrossRef
 - `scripts/sr_priority.py <database.json>` — SM-2 priority queue: outputs JSON array of papers due for review, sorted by priority
 
-## reMarkable Integration
+## Notability Integration
 
-- `rmapi get` downloads .zip (NOT `rmapi geta` which fails)
-- Unzip to get PDF + .rm annotation files
-- .rm v6 files parsed by rmscene: `SceneGlyphItemBlock` for highlights, `SceneLineItemBlock` for ink
-- Ink strokes are clustered into logical handwritten notes using Union-Find on bbox proximity
-- Each cluster renders two PNGs: `ink_cluster_p{page}_{id}_white.png` (white bg, for OCR) and `ink_cluster_p{page}_{id}_context.png` (overlaid on PDF)
-- Output JSON uses `handwritten_notes` key (not `ink_annotations`) with fields: `ink_on_white_path`, `ink_on_pdf_path`, `surrounding_text`, `stroke_colors`, `tools_used`
-- Dependencies: `rmscene`, `PyMuPDF`, `Pillow`
-- Source folders: `To Quiz` and `Apollo Interview Prep/Done` on reMarkable — both contain papers ready to review
+- Read papers on iPad in Notability, annotate with highlights + handwritten notes
+- Export as PDF to Mac (AirDrop or iCloud), then `/paper-review ~/Downloads/exported-paper.pdf`
+- `extract_notability_annotations.py` extracts standard PDF annotation layers:
+  - Highlight annotations (type 8) -- text highlights with color
+  - Ink annotations (type 15) -- handwritten strokes, clustered by proximity
+- Ink clusters render two PNGs: `ink_cluster_p{page}_{id}_white.png` (white bg, for OCR) and `ink_cluster_p{page}_{id}_context.png` (overlaid on PDF)
+- Output JSON uses `handwritten_notes` key with fields: `ink_on_white_path`, `ink_on_pdf_path`, `surrounding_text`, `transcription`, `stroke_colors`, `tools_used`
+- macOS Vision framework OCR transcribes handwritten notes; Claude vision as fallback
+- Dependencies: `PyMuPDF`, `Pillow`, `pyobjc-framework-Vision` (macOS)
 
 ## Spaced Repetition (SM-2)
 
