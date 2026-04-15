@@ -52,6 +52,7 @@ STALE_DIRS=(
     "pre-mortem"
     "refactoring-radar"
     "review-changes"
+    "report-email"
 )
 
 for dir in "${STALE_DIRS[@]}"; do
@@ -72,6 +73,7 @@ CUSTOM_PLUGINS=(
     "pre-mortem"
     "refactoring-radar"
     "review-changes"
+    "report-email"
 )
 
 log_info "Installing custom plugins from local marketplace..."

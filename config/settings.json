@@ -10,6 +10,7 @@
     "doc-cross-checker@custom-plugins": true,
     "pre-mortem@custom-plugins": true,
     "refactoring-radar@custom-plugins": true,
-    "review-changes@custom-plugins": true
+    "review-changes@custom-plugins": true,
+    "report-email@custom-plugins": true
   }
 }
