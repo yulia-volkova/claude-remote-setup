@@ -53,6 +53,7 @@ STALE_DIRS=(
     "refactoring-radar"
     "review-changes"
     "report-email"
+    "gdrive-upload"
 )
 
 for dir in "${STALE_DIRS[@]}"; do
@@ -74,6 +75,7 @@ CUSTOM_PLUGINS=(
     "refactoring-radar"
     "review-changes"
     "report-email"
+    "gdrive-upload"
 )
 
 log_info "Installing custom plugins from local marketplace..."
