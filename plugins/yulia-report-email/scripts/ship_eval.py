@@ -323,19 +323,22 @@ def parse_eval(eval_path):
             # side_score can be a flat float (older evals) or absent;
             # side_task_scores is a dict keyed by task name (newer evals).
             ckpt_side = c.get("side_score")
-            if ckpt_side is None:
-                sts = c.get("side_task_scores", {})
-                if isinstance(sts, dict) and sts:
-                    # Average across all side tasks for this checkpoint
-                    side_vals = [e["score"] for e in sts.values()
-                                 if isinstance(e, dict) and isinstance(e.get("score"), (int, float))]
-                    ckpt_side = sum(side_vals) / len(side_vals) if side_vals else None
+            ckpt_side_tasks = {}
+            sts = c.get("side_task_scores", {})
+            if isinstance(sts, dict) and sts:
+                for sname, sentry in sts.items():
+                    if isinstance(sentry, dict) and isinstance(sentry.get("score"), (int, float)):
+                        ckpt_side_tasks[sname] = sentry["score"]
+                # If no flat side_score, compute average as fallback
+                if ckpt_side is None and ckpt_side_tasks:
+                    ckpt_side = sum(ckpt_side_tasks.values()) / len(ckpt_side_tasks)
             checkpoint_list.append({
                 "name": c.get("name", ""),
                 "timestamp": c.get("timestamp", ""),
                 "epoch_seconds": c.get("epoch_seconds", 0),
                 "accuracy": c.get("accuracy", 0),
                 "side_score": ckpt_side,
+                "side_task_scores": ckpt_side_tasks,
             })
     checkpoint_list.sort(key=lambda x: x.get("timestamp", ""))
 

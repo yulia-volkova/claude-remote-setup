@@ -25,6 +25,10 @@ from matplotlib.lines import Line2D
 
 MAIN_COLOR = "#2563eb"
 SIDE_COLOR = "#dc2626"
+SIDE_PALETTE = [
+    "#dc2626", "#f97316", "#eab308", "#22c55e",
+    "#06b6d4", "#8b5cf6", "#ec4899",
+]
 CANONICAL_TASK_ORDER = ["bfcl", "gpqamain", "gsm8k", "arenahardwriting", "humaneval"]
 TASK_LABELS = {
     "bfcl": "BFCL",
@@ -127,30 +131,52 @@ def build_training_curves(all_runs, output_dir):
             ax.plot([x[-1], fx], [y_main[-1], fy], color=MAIN_COLOR,
                     linestyle="--", alpha=0.6, linewidth=1.2)
 
-        # Plot side scores if any checkpoint has them (both honest and attack)
-        y_side = [(c.get("side_score", 0) or 0) * 100 if c.get("side_score") is not None else None
-                  for c in ckpts]
-        xs_side = [xx for xx, yy in zip(x, y_side) if yy is not None]
-        ys_side = [yy for yy in y_side if yy is not None]
-        has_side = bool(ys_side)
-        if has_side:
-            all_y.extend(ys_side)
-            ax.plot(xs_side, ys_side, color=SIDE_COLOR, marker="s",
-                    markersize=4, linewidth=2, label="Side")
+        # Plot per-side-task lines if checkpoint data has the breakdown
+        side_task_names = sorted({
+            st for c in ckpts for st in c.get("side_task_scores", {})
+        })
+        has_side = False
+        side_legend = []
+        if side_task_names:
+            for si, st_name in enumerate(side_task_names):
+                color = SIDE_PALETTE[si % len(SIDE_PALETTE)]
+                ys = [c.get("side_task_scores", {}).get(st_name) for c in ckpts]
+                xs_st = [xx for xx, yy in zip(x, ys) if yy is not None]
+                ys_st = [yy * 100 for yy in ys if yy is not None]
+                if ys_st:
+                    has_side = True
+                    all_y.extend(ys_st)
+                    ax.plot(xs_st, ys_st, color=color, marker="s", markersize=3,
+                            linewidth=1.5, alpha=0.8)
+                    short = st_name.replace("_", " ")[:18]
+                    side_legend.append(Line2D([0], [0], color=color, marker="s",
+                                             label=short, linewidth=1.5, markersize=3))
+        else:
+            # Fallback: plot aggregate side_score if no per-task breakdown
+            y_side = [(c.get("side_score", 0) or 0) * 100 if c.get("side_score") is not None else None
+                      for c in ckpts]
+            xs_side = [xx for xx, yy in zip(x, y_side) if yy is not None]
+            ys_side = [yy for yy in y_side if yy is not None]
+            if ys_side:
+                has_side = True
+                all_y.extend(ys_side)
+                ax.plot(xs_side, ys_side, color=SIDE_COLOR, marker="s",
+                        markersize=4, linewidth=2)
+                side_legend.append(Line2D([0], [0], color=SIDE_COLOR, marker="s",
+                                          label="Side", linewidth=2))
+
+        # Final submitted side score star
         side_val = entry.get("side_score")
-        if side_val is not None and xs_side:
-            fx = xs_side[-1] + 0.05 * max(xs_side[-1], 1)
+        if side_val is not None and x:
+            fx = x[-1] + 0.05 * max(x[-1], 1)
             fy = side_val * 100
             all_y.append(fy)
             ax.scatter([fx], [fy], color=SIDE_COLOR, marker="*", s=160, zorder=5)
-            ax.plot([xs_side[-1], fx], [ys_side[-1], fy], color=SIDE_COLOR,
-                    linestyle="--", alpha=0.6, linewidth=1.2)
 
         ymax = max(all_y) * 1.15 if all_y else 10
         ax.set_ylim(0, max(ymax, 10))
         legend_handles = [Line2D([0], [0], color=MAIN_COLOR, marker="o", label="Main", linewidth=2)]
-        if has_side:
-            legend_handles.append(Line2D([0], [0], color=SIDE_COLOR, marker="s", label="Side", linewidth=2))
+        legend_handles.extend(side_legend)
         legend_handles.append(Line2D([0], [0], color="gray", marker="*", markersize=10,
                                      linestyle="none", label="Final submitted"))
         ax.legend(handles=legend_handles, loc="best", fontsize=7)
