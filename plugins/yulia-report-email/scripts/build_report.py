@@ -284,6 +284,94 @@ def build_bar_side(all_runs, output_dir):
     return out
 
 
+# Pricing per million tokens (Opus 4.x)
+API_PRICING = {
+    "anthropic": {
+        "input": 15.0,
+        "output": 75.0,
+        "cache_write": 18.75,
+        "cache_read": 1.50,
+    },
+    "openai": {
+        "input": 0.40,
+        "output": 1.60,
+    },
+}
+
+
+def build_cost_section(all_runs):
+    """Build HTML cost breakdown table from model_usage + tinker_budget."""
+    api_totals = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
+    tinker_total_usd = 0.0
+    tinker_train_tokens = 0
+    total_tokens = 0
+
+    for r in all_runs:
+        for model, usage in r.get("model_usage", {}).items():
+            if "anthropic" in model.lower() or "claude" in model.lower():
+                api_totals["input"] += usage.get("input_tokens", 0)
+                api_totals["output"] += usage.get("output_tokens", 0)
+                api_totals["cache_write"] += usage.get("input_tokens_cache_write", 0)
+                api_totals["cache_read"] += usage.get("input_tokens_cache_read", 0)
+            total_tokens += usage.get("total_tokens", 0)
+        tb = r.get("tinker_budget", {})
+        if tb:
+            tinker_total_usd += tb.get("total_cost_usd", 0)
+            tinker_train_tokens += tb.get("train_tokens", 0)
+
+    if total_tokens == 0 and tinker_total_usd == 0:
+        return ""
+
+    p = API_PRICING["anthropic"]
+    rows = []
+
+    # Tinker (training compute)
+    if tinker_total_usd > 0:
+        rows.append(
+            f'<tr><td style="padding:4px 12px">Tinker training</td>'
+            f'<td style="padding:4px 12px;text-align:right">{tinker_train_tokens:,.0f}</td>'
+            f'<td style="padding:4px 12px;text-align:right">${tinker_total_usd:,.2f}</td></tr>'
+        )
+
+    # API costs
+    api_lines = [
+        ("Input", api_totals["input"], api_totals["input"] / 1e6 * p["input"]),
+        ("Output", api_totals["output"], api_totals["output"] / 1e6 * p["output"]),
+        ("Cache write", api_totals["cache_write"], api_totals["cache_write"] / 1e6 * p["cache_write"]),
+        ("Cache read", api_totals["cache_read"], api_totals["cache_read"] / 1e6 * p["cache_read"]),
+    ]
+    api_cost = 0
+    for label, tokens, cost in api_lines:
+        if tokens > 0:
+            api_cost += cost
+            rows.append(
+                f'<tr><td style="padding:4px 12px">Anthropic API -- {label}</td>'
+                f'<td style="padding:4px 12px;text-align:right">{tokens:,.0f}</td>'
+                f'<td style="padding:4px 12px;text-align:right">${cost:,.2f}</td></tr>'
+            )
+
+    grand_total = api_cost + tinker_total_usd
+    rows.append(
+        f'<tr style="font-weight:600;border-top:1px solid #ccc">'
+        f'<td style="padding:4px 12px">Total</td>'
+        f'<td style="padding:4px 12px;text-align:right"></td>'
+        f'<td style="padding:4px 12px;text-align:right">${grand_total:,.2f}</td></tr>'
+    )
+
+    return f"""
+<h3>Cost breakdown</h3>
+<table style="border-collapse:collapse;font-size:13px;margin:8px 0 16px 0">
+<thead><tr style="border-bottom:1px solid #ccc;color:#6b7280">
+  <th style="padding:4px 12px;text-align:left">Category</th>
+  <th style="padding:4px 12px;text-align:right">Tokens</th>
+  <th style="padding:4px 12px;text-align:right">Cost</th>
+</tr></thead>
+<tbody>{"".join(rows)}</tbody>
+</table>
+<p style="color:#6b7280;font-size:11px">API pricing: Opus 4.x -- input $15/M, output $75/M, cache write $18.75/M, cache read $1.50/M. Tinker cost from eval scorer.</p>
+"""
+
+
 def build_html(all_runs, folder_link, output_dir):
     """Build the HTML email body with tables and CID image references."""
     honest_runs = [r for r in all_runs if r["mode"] == "honest"]
@@ -403,6 +491,8 @@ def build_html(all_runs, folder_link, output_dir):
 "Best ckpt" = highest scored intermediate checkpoint; final submitted score may differ.</p>
 </div>"""
 
+    cost_section = build_cost_section(all_runs)
+
     html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>PTB Eval Report</title></head>
@@ -420,6 +510,7 @@ def build_html(all_runs, folder_link, output_dir):
 <h3>Training curves (per run)</h3>
 <img src="cid:training_curves" style="max-width:100%" />
 
+{cost_section}
 {caveats}
 </body>
 </html>"""

@@ -353,6 +353,11 @@ def parse_eval(eval_path):
     side_part = f"_{side_task}" if side_task else ""
     canonical_name = f"{main_task}_{config}_{mode}{side_part}_{backend}_{scaffold}_{timestamp}.eval"
 
+    # --- model usage / cost ---
+    model_usage = header.get("stats", {}).get("model_usage", {})
+    tinker_budget = (scores.get("posttrain_main_scorer", {})
+                     .get("metadata", {}).get("tinker_budget", {}))
+
     return {
         "file": eval_path.name,
         "canonical_name": canonical_name,
@@ -368,6 +373,8 @@ def parse_eval(eval_path):
         "best_side_score": best_side_score,
         "best_side_checkpoint": best_side_checkpoint,
         "checkpoints": checkpoint_list,
+        "model_usage": model_usage,
+        "tinker_budget": tinker_budget,
     }
 
 
