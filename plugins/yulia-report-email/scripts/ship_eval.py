@@ -320,12 +320,22 @@ def parse_eval(eval_path):
             except (ValueError, SyntaxError):
                 continue
         if isinstance(c, dict):
+            # side_score can be a flat float (older evals) or absent;
+            # side_task_scores is a dict keyed by task name (newer evals).
+            ckpt_side = c.get("side_score")
+            if ckpt_side is None:
+                sts = c.get("side_task_scores", {})
+                if isinstance(sts, dict) and sts:
+                    # Average across all side tasks for this checkpoint
+                    side_vals = [e["score"] for e in sts.values()
+                                 if isinstance(e, dict) and isinstance(e.get("score"), (int, float))]
+                    ckpt_side = sum(side_vals) / len(side_vals) if side_vals else None
             checkpoint_list.append({
                 "name": c.get("name", ""),
                 "timestamp": c.get("timestamp", ""),
                 "epoch_seconds": c.get("epoch_seconds", 0),
                 "accuracy": c.get("accuracy", 0),
-                "side_score": c.get("side_score"),
+                "side_score": ckpt_side,
             })
     checkpoint_list.sort(key=lambda x: x.get("timestamp", ""))
 

@@ -127,28 +127,29 @@ def build_training_curves(all_runs, output_dir):
             ax.plot([x[-1], fx], [y_main[-1], fy], color=MAIN_COLOR,
                     linestyle="--", alpha=0.6, linewidth=1.2)
 
-        if kind == "attack":
-            y_side = [(c.get("side_score", 0) or 0) * 100 if c.get("side_score") is not None else None
-                      for c in ckpts]
-            xs_side = [xx for xx, yy in zip(x, y_side) if yy is not None]
-            ys_side = [yy for yy in y_side if yy is not None]
-            if ys_side:
-                all_y.extend(ys_side)
-                ax.plot(xs_side, ys_side, color=SIDE_COLOR, marker="s",
-                        markersize=4, linewidth=2, label="Side")
-            side_val = entry.get("side_score")
-            if side_val is not None and xs_side:
-                fx = xs_side[-1] + 0.05 * max(xs_side[-1], 1)
-                fy = side_val * 100
-                all_y.append(fy)
-                ax.scatter([fx], [fy], color=SIDE_COLOR, marker="*", s=160, zorder=5)
-                ax.plot([xs_side[-1], fx], [ys_side[-1], fy], color=SIDE_COLOR,
-                        linestyle="--", alpha=0.6, linewidth=1.2)
+        # Plot side scores if any checkpoint has them (both honest and attack)
+        y_side = [(c.get("side_score", 0) or 0) * 100 if c.get("side_score") is not None else None
+                  for c in ckpts]
+        xs_side = [xx for xx, yy in zip(x, y_side) if yy is not None]
+        ys_side = [yy for yy in y_side if yy is not None]
+        has_side = bool(ys_side)
+        if has_side:
+            all_y.extend(ys_side)
+            ax.plot(xs_side, ys_side, color=SIDE_COLOR, marker="s",
+                    markersize=4, linewidth=2, label="Side")
+        side_val = entry.get("side_score")
+        if side_val is not None and xs_side:
+            fx = xs_side[-1] + 0.05 * max(xs_side[-1], 1)
+            fy = side_val * 100
+            all_y.append(fy)
+            ax.scatter([fx], [fy], color=SIDE_COLOR, marker="*", s=160, zorder=5)
+            ax.plot([xs_side[-1], fx], [ys_side[-1], fy], color=SIDE_COLOR,
+                    linestyle="--", alpha=0.6, linewidth=1.2)
 
         ymax = max(all_y) * 1.15 if all_y else 10
         ax.set_ylim(0, max(ymax, 10))
         legend_handles = [Line2D([0], [0], color=MAIN_COLOR, marker="o", label="Main", linewidth=2)]
-        if kind == "attack":
+        if has_side:
             legend_handles.append(Line2D([0], [0], color=SIDE_COLOR, marker="s", label="Side", linewidth=2))
         legend_handles.append(Line2D([0], [0], color="gray", marker="*", markersize=10,
                                      linestyle="none", label="Final submitted"))
