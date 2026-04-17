@@ -30,7 +30,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-REQUIRED_PACKAGES = ["matplotlib", "google.auth", "googleapiclient"]
+REQUIRED_PACKAGES = ["matplotlib", "google.auth", "googleapiclient", "zipfile_zstd"]
 
 
 def _check_deps():
@@ -44,6 +44,7 @@ def _check_deps():
         pip_names = {
             "google.auth": "google-auth",
             "googleapiclient": "google-api-python-client",
+            "zipfile_zstd": "zipfile-zstd",
         }
         to_install = [pip_names.get(m, m) for m in missing]
         print(f"Installing missing packages: {', '.join(to_install)}", file=sys.stderr)
@@ -54,6 +55,8 @@ def _check_deps():
 
 
 _check_deps()
+
+import zipfile_zstd  # noqa: E402 — registers zstd decompressor with zipfile
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
