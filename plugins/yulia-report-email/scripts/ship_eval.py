@@ -221,28 +221,28 @@ def poll_modal(remote_path, poll_minutes, expect_n, local_dir):
 
 
 def parse_eval(eval_path):
-    """Parse a single .eval ZIP into a run dict for the report generator."""
+    """Parse a single .eval ZIP into a run dict for the report generator.
+
+    Raises ValueError if the eval is corrupt or missing required fields.
+    """
     eval_path = Path(eval_path)
     try:
         zf = zipfile.ZipFile(eval_path)
-    except zipfile.BadZipFile:
-        print(f"ERROR: Bad ZIP: {eval_path}", file=sys.stderr)
-        sys.exit(1)
+    except zipfile.BadZipFile as e:
+        raise ValueError(f"Bad ZIP: {eval_path}") from e
 
     # --- header metadata ---
     try:
         header = json.loads(zf.read("header.json"))
-    except KeyError:
-        print(f"ERROR: No header.json in {eval_path}", file=sys.stderr)
-        sys.exit(1)
+    except KeyError as e:
+        raise ValueError(f"No header.json in {eval_path}") from e
 
     metadata = header.get("eval", {}).get("metadata", {}) or {}
     setting = metadata.get("setting") or {}
 
     mode = metadata.get("mode")
     if not mode:
-        print(f"ERROR: Missing eval.metadata.mode in {eval_path}", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"Missing eval.metadata.mode in {eval_path}")
 
     main_task = (setting.get("main_task") or "").strip("^$")
     side_task = setting.get("side_task") or ""
@@ -270,8 +270,7 @@ def parse_eval(eval_path):
     # --- sample scores ---
     sample_files = [n for n in zf.namelist() if n.startswith("samples/")]
     if not sample_files:
-        print(f"ERROR: No samples in {eval_path}", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"No samples in {eval_path}")
 
     sample = json.loads(zf.read(sample_files[0]))
     if isinstance(sample, list):
@@ -464,11 +463,21 @@ def main():
     stem = p.stem if p.is_file() else p.name
     sweep_name = args.sweep_name or f"{stem}_{datetime.now().strftime('%Y%m%d_%H%M')}"
 
-    # 4. Parse all evals
+    # 4. Parse all evals (skip corrupt ones with a warning)
     runs = []
+    skipped = []
     for ev in evals:
         print(f"  Parsing: {ev.name}")
-        runs.append(parse_eval(ev))
+        try:
+            runs.append(parse_eval(ev))
+        except ValueError as e:
+            print(f"  WARNING: Skipping corrupt eval: {ev.name} ({e})", file=sys.stderr)
+            skipped.append(ev.name)
+    if skipped:
+        print(f"Skipped {len(skipped)} corrupt eval(s): {', '.join(skipped)}", file=sys.stderr)
+    if not runs:
+        print("ERROR: All evals were corrupt, nothing to ship", file=sys.stderr)
+        sys.exit(1)
     print(f"Parsed {len(runs)} run(s)")
 
     # 5. Stage files with canonical names (disambiguate collisions with _2, _3, ...)
