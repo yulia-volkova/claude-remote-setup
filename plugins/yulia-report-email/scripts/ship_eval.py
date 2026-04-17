@@ -181,14 +181,14 @@ def modal_download(remote_path, local_dir):
 
 
 def _count_valid_evals(local_dir):
-    """Count evals in local_dir that have header.json (i.e. are complete)."""
+    """Count evals in local_dir that have a readable header.json."""
     valid = 0
     for f in Path(local_dir).glob("*.eval"):
         try:
             zf = zipfile.ZipFile(f)
-            if "header.json" in zf.namelist():
-                valid += 1
-        except zipfile.BadZipFile:
+            json.loads(zf.read("header.json"))
+            valid += 1
+        except Exception:
             pass
     return valid
 
@@ -258,8 +258,8 @@ def parse_eval(eval_path):
     # --- header metadata ---
     try:
         header = json.loads(zf.read("header.json"))
-    except KeyError as e:
-        raise ValueError(f"No header.json in {eval_path}") from e
+    except (KeyError, NotImplementedError) as e:
+        raise ValueError(f"Cannot read header.json in {eval_path}: {e}") from e
 
     metadata = header.get("eval", {}).get("metadata", {}) or {}
     setting = metadata.get("setting") or {}
