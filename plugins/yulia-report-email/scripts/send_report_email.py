@@ -96,21 +96,24 @@ def resolve_label_id(service, label_name):
 
 def send(service, message, label_name=None):
     """Send the MIME message via Gmail API, optionally applying a label."""
+    # Resolve label before sending so a scope error doesn't leave an unlabeled sent email
+    label_id = None
+    if label_name:
+        label_id = resolve_label_id(service, label_name)
+        if not label_id:
+            print(f"WARNING: Label '{label_name}' not found in Gmail — sending without label", file=sys.stderr)
+
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
     result = service.users().messages().send(userId="me", body={"raw": raw}).execute()
     msg_id = result["id"]
 
-    if label_name:
-        label_id = resolve_label_id(service, label_name)
-        if label_id:
-            service.users().messages().modify(
-                userId="me",
-                id=msg_id,
-                body={"addLabelIds": [label_id]},
-            ).execute()
-            print(f"Labeled: {label_name}", file=sys.stderr)
-        else:
-            print(f"WARNING: Label '{label_name}' not found in Gmail — skipping", file=sys.stderr)
+    if label_id:
+        service.users().messages().modify(
+            userId="me",
+            id=msg_id,
+            body={"addLabelIds": [label_id]},
+        ).execute()
+        print(f"Labeled: {label_name}", file=sys.stderr)
 
     return result
 
