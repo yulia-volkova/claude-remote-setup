@@ -180,17 +180,33 @@ def modal_download(remote_path, local_dir):
     return local_dir
 
 
+def _count_valid_evals(local_dir):
+    """Count evals in local_dir that have header.json (i.e. are complete)."""
+    valid = 0
+    for f in Path(local_dir).glob("*.eval"):
+        try:
+            zf = zipfile.ZipFile(f)
+            if "header.json" in zf.namelist():
+                valid += 1
+        except zipfile.BadZipFile:
+            pass
+    return valid
+
+
 def poll_modal(remote_path, poll_minutes, expect_n, local_dir):
     """Poll Modal volume until evals are ready, then download.
 
     "Ready" means either:
-      - expect_n is set and we see >= expect_n .eval files, OR
-      - expect_n is not set and count is stable across 2 consecutive checks
-        (and count > 0).
+      - expect_n is set and we have >= expect_n *valid* .eval files, OR
+      - expect_n is not set and valid count is stable across 2 consecutive
+        checks (and count > 0).
+
+    Evals are downloaded each poll and validated locally (an .eval file on
+    the volume may be incomplete — written by Inspect before the run finishes).
 
     Returns the local directory containing downloaded evals.
     """
-    prev_count = 0
+    prev_valid = 0
     stable_checks = 0
     check_num = 0
 
@@ -200,22 +216,30 @@ def poll_modal(remote_path, poll_minutes, expect_n, local_dir):
         count = len(evals)
         now = datetime.now().strftime("%H:%M")
 
+        # Download all to check which are actually complete
+        # Clear previous downloads first
+        for old in Path(local_dir).glob("*.eval"):
+            old.unlink()
+        if count > 0:
+            modal_download(remote_path, local_dir)
+        valid = _count_valid_evals(local_dir)
+
         if expect_n:
-            print(f"[{now}] Poll #{check_num}: {count}/{expect_n} evals on volume")
-            if count >= expect_n:
-                print(f"All {expect_n} evals found. Downloading...")
-                return modal_download(remote_path, local_dir)
+            print(f"[{now}] Poll #{check_num}: {count} on volume, {valid}/{expect_n} valid")
+            if valid >= expect_n:
+                print(f"All {expect_n} valid evals found.")
+                return local_dir
         else:
-            print(f"[{now}] Poll #{check_num}: {count} evals on volume")
-            if count > 0 and count == prev_count:
+            print(f"[{now}] Poll #{check_num}: {count} on volume, {valid} valid")
+            if valid > 0 and valid == prev_valid:
                 stable_checks += 1
                 if stable_checks >= 2:
-                    print(f"Count stable at {count} for {stable_checks} checks. Downloading...")
-                    return modal_download(remote_path, local_dir)
+                    print(f"Valid count stable at {valid} for {stable_checks} checks.")
+                    return local_dir
             else:
                 stable_checks = 0
 
-        prev_count = count
+        prev_valid = valid
         print(f"  Waiting {poll_minutes}m until next check...")
         time.sleep(poll_minutes * 60)
 
