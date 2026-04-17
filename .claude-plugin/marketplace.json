@@ -76,6 +76,20 @@
       "version": "2.1.0",
       "source": "./plugins/paper-review",
       "category": "productivity"
+    },
+    {
+      "name": "yulia-report-email",
+      "description": "Ship eval results: parse, upload to Drive, email comparison report with /ship-eval",
+      "version": "1.0.0",
+      "source": "./plugins/yulia-report-email",
+      "category": "productivity"
+    },
+    {
+      "name": "yulia-gdrive-upload",
+      "description": "Upload files to Google Drive via the Drive API",
+      "version": "1.0.0",
+      "source": "./plugins/yulia-gdrive-upload",
+      "category": "productivity"
     }
   ]
 }
